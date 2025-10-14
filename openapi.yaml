@@ -1,0 +1,81 @@
+openapi: 3.1.0
+info:
+  title: Personal COO Backend Gateway
+  version: 1.0.0
+servers:
+  - url: https://YOUR-RENDER-URL.onrender.com
+paths:
+  /v1/health:
+    get:
+      summary: Health check
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  time:
+                    type: string
+                    format: date-time
+  /v1/planner/week-plan:
+    post:
+      summary: Build a weekly plan from goals (mock)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                goals:
+                  type: array
+                  items: { type: string }
+                preferences:
+                  type: object
+      responses:
+        '200':
+          description: Tasks + schedule suggestions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tasks:
+                    type: array
+                    items: { type: object }
+                  subtasks:
+                    type: array
+                    items: { type: object }
+                  schedule_suggestions:
+                    type: array
+                    items: { type: object }
+  /v1/gmail/summarize-inbox:
+    post:
+      summary: Summarize inbox (mock)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                query:
+                  type: string
+      responses:
+        '200':
+          description: Thread summaries
+  /v1/gmail/compose-and-send:
+    post:
+      summary: Draft or send email (mock)
+      responses:
+        '200':
+          description: Draft created / Sent
+  /v1/calendar/block-time:
+    post:
+      summary: Create calendar event (mock)
+      responses:
+        '200':
+          description: Event created
