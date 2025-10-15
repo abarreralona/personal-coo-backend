@@ -1,12 +1,20 @@
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 
-app = FastAPI(title="Personal COO Backend Gateway", version="1.0.0")
+# NEW imports
+from utils.db import init_db
+from google_oauth import oauth_start_url, exchange_code_for_tokens, save_tokens
+from gmail_api import summarize_inbox, send_email
+from odoo_api import search_priority_items
+from memory_api import memory_write, memory_search
 
-# --- CORS (adjust origins for your Lovable/Manus domains) ---
+init_db()
+
+app = FastAPI(title="Personal COO Backend Gateway", version="1.2.0")
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -19,11 +27,62 @@ app.add_middleware(
 async def health():
     return {"status": "ok", "time": datetime.utcnow().isoformat()}
 
+# ---------- Google OAuth ----------
+@app.get("/v1/oauth/google/start")
+async def google_oauth_start(user_id: str = "default"):
+    return RedirectResponse(oauth_start_url(user_id=user_id))
+
+@app.get("/v1/oauth/google/callback")
+async def google_oauth_callback(code: str, state: Optional[str] = None):
+    tokens = exchange_code_for_tokens(code)
+    save_tokens("default", tokens)
+    return HTMLResponse("<h2>Google connected ✅</h2><p>You can close this window.</p>")
+
+# ---------- Gmail (real) ----------
+@app.post("/v1/gmail/summarize-inbox")
+async def gmail_summarize(payload: Dict[str, Any]):
+    user_id = payload.get("user_id", "default")
+    query = payload.get("query", "in:inbox newer_than:7d -category:promotions")
+    max_threads = int(payload.get("max_threads", 10))
+    return {"threads": summarize_inbox(user_id, query, max_threads)}
+
+@app.post("/v1/gmail/compose-and-send")
+async def gmail_compose_send(payload: Dict[str, Any]):
+    user_id = payload.get("user_id", "default")
+    to = payload.get("to", [])
+    subject = payload.get("subject", "")
+    html_body = payload.get("html_body", "")
+    threadId = payload.get("threadId")
+    draftOnly = bool(payload.get("draftOnly", True))
+    return send_email(user_id, to, subject, html_body, threadId, draftOnly)
+
+# ---------- Odoo (real read) ----------
+@app.post("/v1/odoo/priority-items/search")
+async def odoo_priority(payload: Dict[str, Any]):
+    days_ahead = int(payload.get("days_ahead", 14))
+    limit = int(payload.get("limit", 10))
+    stages = payload.get("stages")
+    owner_id = payload.get("owner_id")
+    return search_priority_items(days_ahead, limit, stages, owner_id)
+
+# ---------- Memory (simple) ----------
+@app.post("/v1/memory/write")
+async def memory_write_route(payload: Dict[str, Any]):
+    return memory_write(payload.get("user_id","default"),
+                        payload["kind"], payload["text"],
+                        payload.get("tags"), float(payload.get("strength", 0.7)))
+
+@app.post("/v1/memory/search")
+async def memory_search_route(payload: Dict[str, Any]):
+    return memory_search(payload.get("user_id","default"),
+                         payload.get("query",""),
+                         payload.get("kinds"), int(payload.get("top_k",5)))
+
+# ---------- Your existing planner (kept) ----------
 @app.post("/v1/planner/week-plan")
 async def make_week_plan(payload: Dict[str, Any]):
     goals: List[str] = payload.get("goals", [])
     focus_minutes = payload.get("preferences", {}).get("focus_blocks_min", 90)
-    # Produce a tiny deterministic mock plan you can immediately render in Lovable
     tasks = []
     for i, g in enumerate(goals, start=1):
         deadline = (datetime.utcnow() + timedelta(days=3 + i)).date().isoformat()
@@ -57,29 +116,3 @@ async def make_week_plan(payload: Dict[str, Any]):
         })
     return {"tasks": tasks, "subtasks": subtasks, "schedule_suggestions": schedule}
 
-# --- Placeholders for other routes you will fill later ---
-@app.post("/v1/gmail/summarize-inbox")
-async def gmail_summarize_inbox(payload: Dict[str, Any]):
-    query = payload.get("query", "in:inbox newer_than:7d -category:promotions")
-    return {"threads": [
-        {"threadId": "abc123", "subject": "Sigma – next steps", "from": "sigma@example.com",
-         "last_message_ts": datetime.utcnow().isoformat() + "Z",
-         "snippet": "Checking in on the SOW...",
-         "action_needed": True, "suggested_reply": "Thanks for the update — attaching the SOW for your review."}
-    ]}
-
-@app.post("/v1/gmail/compose-and-send")
-async def gmail_compose_and_send(payload: Dict[str, Any]):
-    # This is a mock implementation for first deploy.
-    draft_only = payload.get("draftOnly", True)
-    status = "draft_created" if draft_only else "sent"
-    return {"message_id": "mock-msg-001", "threadId": payload.get("threadId", "abc123"), "status": status}
-
-@app.post("/v1/calendar/block-time")
-async def calendar_block_time(payload: Dict[str, Any]):
-    # Mock create event
-    start = payload.get("start")
-    end = payload.get("end")
-    if not (start and end):
-        raise HTTPException(status_code=422, detail="start and end are required")
-    return {"event_id": "evt_001", "html_link": "https://calendar.google.com/event?eid=mock", "start": start, "end": end, "timezone": payload.get("timezone", "UTC")}
