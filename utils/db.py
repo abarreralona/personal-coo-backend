@@ -4,7 +4,7 @@ from typing import Optional, Dict, Any, List
 import json
 from datetime import datetime
 
-DB_PATH = Path("coo_backend.db")
+DB_PATH = Path(os.getenv("DB_PATH", "/var/data/coo_backend.db"))
 
 def _connect():
     conn = sqlite3.connect(DB_PATH)
