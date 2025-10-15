@@ -56,7 +56,7 @@ async def gmail_compose_send(payload: Dict[str, Any]):
     draftOnly = bool(payload.get("draftOnly", True))
     return send_email(user_id, to, subject, html_body, threadId, draftOnly)
 
-# ---------- Odoo (real read) ----------
+# ---------- Odoo ----------
 @app.post("/v1/odoo/priority-items/search")
 async def odoo_priority(payload: Dict[str, Any]):
     days_ahead = int(payload.get("days_ahead", 14))
@@ -65,7 +65,7 @@ async def odoo_priority(payload: Dict[str, Any]):
     owner_id = payload.get("owner_id")
     return search_priority_items(days_ahead, limit, stages, owner_id)
 
-# ---------- Memory (simple) ----------
+# ---------- Memory ----------
 @app.post("/v1/memory/write")
 async def memory_write_route(payload: Dict[str, Any]):
     return memory_write(payload.get("user_id","default"),
@@ -78,7 +78,7 @@ async def memory_search_route(payload: Dict[str, Any]):
                          payload.get("query",""),
                          payload.get("kinds"), int(payload.get("top_k",5)))
 
-# ---------- Your existing planner (kept) ----------
+# ---------- Your existing planner ----------
 @app.post("/v1/planner/week-plan")
 async def make_week_plan(payload: Dict[str, Any]):
     goals: List[str] = payload.get("goals", [])
@@ -115,4 +115,3 @@ async def make_week_plan(payload: Dict[str, Any]):
             "timezone": "America/Mexico_City"
         })
     return {"tasks": tasks, "subtasks": subtasks, "schedule_suggestions": schedule}
-
