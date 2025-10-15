@@ -1,9 +1,11 @@
+import os
 import sqlite3
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 import json
 from datetime import datetime
 
+# Use the Render persistent disk if available, otherwise fallback to local path
 DB_PATH = Path(os.getenv("DB_PATH", "/var/data/coo_backend.db"))
 
 def _connect():
