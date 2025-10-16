@@ -1,176 +1,180 @@
-# utils/db.py
 import os
+import json
 import sqlite3
 from pathlib import Path
 from typing import Optional, Dict, Any, List
-import json
 from datetime import datetime
 
-# Use Render persistent disk if available (mount /var/data on Render)
+# Where the DB lives (use Render disk when present)
 DB_PATH = Path(os.getenv("DB_PATH", "/var/data/coo_backend.db"))
 
-# -----------------------------
-# Low-level helpers / bootstrap
-# -----------------------------
-
-def _get_conn() -> sqlite3.Connection:
+def _ensure_parent():
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+def _connect():
+    _ensure_parent()
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
 
-def _ensure_schema(conn: sqlite3.Connection) -> None:
+def init_db():
     """
-    Creates tables if they don't exist and adds missing columns if you had
-    an older version. Safe to call on every startup.
+    Creates all tables we need. Safe to call on every startup.
     """
-    # Tokens: store entire token payload + expiry + scopes
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS tokens (
-            user_id TEXT NOT NULL,
-            provider TEXT NOT NULL,
-            token_payload TEXT NOT NULL,
-            token_expiry TEXT,
-            scopes TEXT,
-            updated_at TEXT NOT NULL,
-            PRIMARY KEY (user_id, provider)
-        )
+    conn = _connect()
+    c = conn.cursor()
+
+    # OAuth tokens (supports multiple users and providers)
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS tokens (
+        user_id TEXT NOT NULL,
+        provider TEXT NOT NULL,
+        access_token TEXT,
+        refresh_token TEXT,
+        token_json TEXT,       -- full payload for convenience
+        token_expiry TEXT,     -- ISO datetime or NULL
+        scopes TEXT,           -- space-separated scopes
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (user_id, provider)
+    )
     """)
 
-    # Backward-compatible column additions (no-op if they already exist)
-    cols = [r["name"] for r in conn.execute("PRAGMA table_info(tokens)")]
-    if "token_expiry" not in cols:
-        conn.execute("ALTER TABLE tokens ADD COLUMN token_expiry TEXT")
-    if "scopes" not in cols:
-        conn.execute("ALTER TABLE tokens ADD COLUMN scopes TEXT")
-    if "updated_at" not in cols:
-        conn.execute("ALTER TABLE tokens ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''")
-
-    # Simple memory store used by /v1/memory/*
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS mem_chunks (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id TEXT NOT NULL,
-            kind TEXT NOT NULL,
-            text TEXT NOT NULL,
-            tags TEXT,
-            strength REAL DEFAULT 0.7,
-            created_at TEXT
-        )
+    # Agent memory
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS memories (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT NOT NULL,     -- e.g. the owner email or 'default'
+        agent_id TEXT NOT NULL,    -- e.g. 'personal-coo'
+        scope TEXT NOT NULL,       -- 'short' | 'long' | 'team'
+        content TEXT NOT NULL,
+        tags TEXT,                 -- comma-separated
+        source TEXT,               -- 'manual' | 'gmail' | 'odoo' | 'chat'
+        score REAL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        expires_at TEXT            -- NULL for long-term
+    )
     """)
 
-def init_db() -> None:
-    with _get_conn() as conn:
-        _ensure_schema(conn)
-        conn.commit()
+    conn.commit()
+    conn.close()
 
-# -----------------------------
-# OAuth token storage
-# -----------------------------
+# ----------------------------
+# OAuth token helpers
+# ----------------------------
 
 def upsert_token(
     user_id: str,
     provider: str,
     token_payload: Dict[str, Any],
     token_expiry: Optional[str],
-    scopes: str,
+    scopes: Optional[str]
 ) -> None:
     """
-    Save/replace the token for (user_id, provider).
-    token_payload is stored as JSON (includes access_token, refresh_token, etc.)
+    Stores or updates a token. 'token_payload' is the full dict you get from Google Flow.
     """
-    payload_json = json.dumps(token_payload)
     now = datetime.utcnow().isoformat()
+    access_token = token_payload.get("access_token")
+    refresh_token = token_payload.get("refresh_token")
 
-    with _get_conn() as conn:
-        _ensure_schema(conn)
-        conn.execute(
-            """
-            INSERT INTO tokens (user_id, provider, token_payload, token_expiry, scopes, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-            ON CONFLICT(user_id, provider) DO UPDATE SET
-                token_payload = excluded.token_payload,
-                token_expiry  = excluded.token_expiry,
-                scopes        = excluded.scopes,
-                updated_at    = excluded.updated_at
-            """,
-            (user_id, provider, payload_json, token_expiry, scopes, now),
-        )
-        conn.commit()
+    conn = _connect()
+    c = conn.cursor()
+    c.execute("""
+        INSERT INTO tokens (user_id, provider, access_token, refresh_token, token_json, token_expiry, scopes, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(user_id, provider) DO UPDATE SET
+            access_token=excluded.access_token,
+            refresh_token=excluded.refresh_token,
+            token_json=excluded.token_json,
+            token_expiry=excluded.token_expiry,
+            scopes=excluded.scopes,
+            updated_at=excluded.updated_at
+    """, (
+        user_id,
+        provider,
+        access_token,
+        refresh_token,
+        json.dumps(token_payload),
+        token_expiry,
+        scopes or "",
+        now,
+        now,
+    ))
+    conn.commit()
+    conn.close()
 
 def get_token(user_id: str, provider: str) -> Optional[Dict[str, Any]]:
-    with _get_conn() as conn:
-        row = conn.execute(
-            "SELECT * FROM tokens WHERE user_id=? AND provider=?",
-            (user_id, provider),
-        ).fetchone()
-
+    conn = _connect()
+    c = conn.cursor()
+    row = c.execute(
+        "SELECT * FROM tokens WHERE user_id=? AND provider=?",
+        (user_id, provider)
+    ).fetchone()
+    conn.close()
     if not row:
         return None
+    d = dict(row)
+    if d.get("token_json"):
+        d["token_json"] = json.loads(d["token_json"])
+    return d
 
-    return {
-        "user_id": row["user_id"],
-        "provider": row["provider"],
-        "token_payload": json.loads(row["token_payload"]),
-        "token_expiry": row["token_expiry"],
-        "scopes": row["scopes"],
-        "updated_at": row["updated_at"],
-    }
-
-# -----------------------------
+# ----------------------------
 # Memory helpers
-# -----------------------------
+# ----------------------------
 
 def write_memory(
     user_id: str,
-    kind: str,
+    kind_or_scope: str,   # keep compatibility with earlier code
     text: str,
     tags: Optional[List[str]] = None,
     strength: float = 0.7,
+    agent_id: str = "personal-coo",
+    source: str = "manual",
+    ttl_days: Optional[int] = None
 ) -> None:
-    tag_str = ",".join(tags or [])
-    now = datetime.utcnow().isoformat()
-    with _get_conn() as conn:
-        conn.execute(
-            "INSERT INTO mem_chunks(user_id, kind, text, tags, strength, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-            (user_id, kind, text, tag_str, strength, now),
-        )
-        conn.commit()
+    """
+    Writes a memory row. If ttl_days is provided we set expires_at accordingly.
+    """
+    now = datetime.utcnow()
+    expires_at = (now + timedelta(days=ttl_days)).isoformat() if ttl_days else None
+
+    conn = _connect()
+    c = conn.cursor()
+    c.execute("""
+        INSERT INTO memories (user_id, agent_id, scope, content, tags, source, score, created_at, expires_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        user_id,
+        agent_id,
+        kind_or_scope,
+        text,
+        ",".join(tags or []),
+        source,
+        strength,
+        now.isoformat(),
+        expires_at
+    ))
+    conn.commit()
+    conn.close()
 
 def search_memory(
     user_id: str,
     query: str,
-    kinds: Optional[List[str]] = None,
-    top_k: int = 5,
+    scopes: Optional[List[str]] = None,
+    top_k: int = 5
 ) -> List[Dict[str, Any]]:
-    base = "SELECT * FROM mem_chunks WHERE user_id=?"
+    conn = _connect()
+    c = conn.cursor()
+    sql = "SELECT * FROM memories WHERE user_id=?"
     params: List[Any] = [user_id]
-
-    if kinds:
-        base += " AND kind IN (%s)" % ",".join("?" * len(kinds))
-        params.extend(kinds)
-
+    if scopes:
+        sql += " AND scope IN (%s)" % ",".join("?" * len(scopes))
+        params += scopes
     if query:
-        base += " AND text LIKE ?"
+        sql += " AND content LIKE ?"
         params.append(f"%{query}%")
-
-    base += " ORDER BY created_at DESC LIMIT ?"
+    sql += " ORDER BY created_at DESC LIMIT ?"
     params.append(top_k)
-
-    with _get_conn() as conn:
-        rows = [dict(r) for r in conn.execute(base, params).fetchall()]
+    rows = [dict(r) for r in c.execute(sql, params).fetchall()]
+    conn.close()
     return rows
-
-def recent_memory(user_id: str, limit: int = 20) -> List[Dict[str, Any]]:
-    with _get_conn() as conn:
-        rows = conn.execute(
-            "SELECT * FROM mem_chunks WHERE user_id=? ORDER BY created_at DESC LIMIT ?",
-            (user_id, limit),
-        ).fetchall()
-    return [dict(r) for r in rows]
-
-def delete_memory(memory_id: int) -> None:
-    with _get_conn() as conn:
-        conn.execute("DELETE FROM mem_chunks WHERE id=?", (memory_id,))
-        conn.commit()
-
