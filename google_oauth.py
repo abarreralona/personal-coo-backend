@@ -1,31 +1,27 @@
-# google_oauth.py
+from __future__ import annotations
+
 import os
-from typing import Optional
+from typing import List, Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-
-# NOTE: keep these imports inside functions if you ever see import errors during build
-from google_auth_oauthlib.flow import Flow
 from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import Flow
+from google.auth.transport.requests import Request as GoogleRequest
 
-from utils.db import upsert_token
+from utils.db import upsert_token as db_upsert_token, get_token as db_get_token
 
 router = APIRouter()
 
-# ---- Environment (fail fast with a readable message) ----
-def _get_env(name: str) -> str:
-    val = os.getenv(name)
-    if not val:
-        raise RuntimeError(f"Missing environment variable: {name}")
-    return val
+# ----- Config -----
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
+GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
+GOOGLE_REDIRECT_URI = os.getenv(
+    "GOOGLE_REDIRECT_URI",
+    "https://personal-coo-backend.onrender.com/v1/oauth/google/callback",
+)
 
-GOOGLE_CLIENT_ID = _get_env("GOOGLE_CLIENT_ID")
-GOOGLE_CLIENT_SECRET = _get_env("GOOGLE_CLIENT_SECRET")
-GOOGLE_REDIRECT_URI = _get_env("GOOGLE_REDIRECT_URI")
-
-# Scopes used across the app (Gmail + Calendar events)
-OAUTH_SCOPES = [
+SCOPES: List[str] = [
     "https://www.googleapis.com/auth/gmail.readonly",
     "https://www.googleapis.com/auth/gmail.modify",
     "https://www.googleapis.com/auth/gmail.compose",
@@ -33,8 +29,10 @@ OAUTH_SCOPES = [
     "https://www.googleapis.com/auth/calendar.events",
 ]
 
-def _flow() -> Flow:
-    """Create an OAuth Flow from env config."""
+
+# ----- Helpers -----
+def _build_flow() -> Flow:
+    """Create an OAuth flow from env vars (no client_secret.json required)."""
     return Flow.from_client_config(
         {
             "web": {
@@ -45,110 +43,101 @@ def _flow() -> Flow:
                 "token_uri": "https://oauth2.googleapis.com/token",
             }
         },
-        scopes=OAUTH_SCOPES,
+        scopes=SCOPES,
+        redirect_uri=GOOGLE_REDIRECT_URI,
     )
 
+
+def _save_tokens(creds: Credentials, scopes: List[str]) -> None:
+    """Persist tokens in our SQLite table (scopes are required!)."""
+    db_upsert_token(
+        provider="google",
+        access_token=creds.token or "",
+        refresh_token=(getattr(creds, "refresh_token", "") or ""),
+        token_expiry=(creds.expiry.isoformat() if getattr(creds, "expiry", None) else ""),
+        scopes=" ".join(scopes),
+    )
+
+
+def stored_credentials() -> Optional[Credentials]:
+    """Build Credentials from DB, if present."""
+    row = db_get_token("google")
+    if not row:
+        return None
+
+    scopes = (row.get("scopes") or "").split() if row.get("scopes") else SCOPES
+    creds = Credentials(
+        token=row.get("access_token") or "",
+        refresh_token=row.get("refresh_token") or None,
+        token_uri="https://oauth2.googleapis.com/token",
+        client_id=GOOGLE_CLIENT_ID,
+        client_secret=GOOGLE_CLIENT_SECRET,
+        scopes=scopes,
+    )
+    return creds
+
+
+def refresh_access_token() -> Optional[Credentials]:
+    """Refresh and re-save tokens if we have a refresh token."""
+    creds = stored_credentials()
+    if not creds:
+        return None
+
+    if creds and creds.expired and creds.refresh_token:
+        creds.refresh(GoogleRequest())
+        _save_tokens(creds, creds.scopes or SCOPES)
+    return creds
+
+
+# ----- Routes -----
 @router.get("/v1/oauth/google/start")
 def google_oauth_start():
     """
-    Starts OAuth; redirects the user to Google's consent screen.
+    Starts Google's OAuth: returns a 307 redirect to Google's consent page.
+
+    Note: Swagger's "Execute" will show "Failed to fetch" due to CORS on redirects.
+    Open the URL in a new tab or visit it directly in your browser.
     """
-    try:
-        flow = _flow()
-        flow.redirect_uri = GOOGLE_REDIRECT_URI
-        auth_url, _state = flow.authorization_url(
-            access_type="offline",
-            include_granted_scopes="true",
-            prompt="consent",  # ensures refresh_token on reconnects
-        )
-        return RedirectResponse(auth_url)
-    except Exception as e:
-        return HTMLResponse(
-            f"<h3>Google OAuth error</h3><pre>{e}</pre>"
-            "<p>Check GOOGLE_CLIENT_ID / SECRET / REDIRECT_URI.</p>",
-            status_code=500,
-        )
+    flow = _build_flow()
+    auth_url, _state = flow.authorization_url(
+        access_type="offline",
+        include_granted_scopes="true",
+        prompt="consent",
+    )
+    return RedirectResponse(auth_url, status_code=307)
+
 
 @router.get("/v1/oauth/google/callback", response_class=HTMLResponse)
-def google_oauth_callback(code: str, state: Optional[str] = None):
+def google_oauth_callback(request: Request):
     """
-    Handles the redirect from Google, exchanges code for tokens,
-    and persists them in the tokens table (utils/db.py).
+    Google redirects here with ?code=...&scope=...&state=...
+    We exchange the code for tokens and persist them (including scopes).
     """
     try:
-        flow = _flow()
-        flow.redirect_uri = GOOGLE_REDIRECT_URI
-        flow.fetch_token(code=code)
-
+        flow = _build_flow()
+        flow.fetch_token(authorization_response=str(request.url))
         creds: Credentials = flow.credentials
-        token_payload = {
-            "access_token": creds.token,
-            "refresh_token": creds.refresh_token,   # may be None if Google didn’t issue a new one
-            "token_uri": creds.token_uri,
-            "client_id": creds.client_id,
-            "client_secret": creds.client_secret,
-            "scopes": creds.scopes,
-            "id_token": creds.id_token,             # may be None
-        }
-        expiry_iso = creds.expiry.isoformat() if creds.expiry else None
-        scopes_str = " ".join(creds.scopes or [])
 
-        # Single-user for now; swap to your real user_id if you support multiple
-        upsert_token("default", "google", token_payload, expiry_iso, scopes_str)
+        # Google echoes scopes in the callback query param "scope" (space-separated)
+        raw_scopes = request.query_params.get("scope", "")
+        scopes = raw_scopes.split(" ") if raw_scopes else (creds.scopes or SCOPES)
+
+        _save_tokens(creds, scopes)
 
         return HTMLResponse("<h3>Google connected ✅</h3><p>You can close this window.</p>")
-
     except Exception as e:
-        return HTMLResponse(
-            f"<h3>OAuth callback error</h3><pre>{e}</pre>"
-            "<p>Common fixes:</p>"
+        msg = (
+            "<h3>OAuth callback error</h3>"
+            f"<pre>{e}</pre>"
+            "<p><b>Common fixes:</b></p>"
             "<ul>"
-            "<li>Authorized redirect URI in Google Cloud must match exactly:</li>"
-            f"<li><code>{GOOGLE_REDIRECT_URI}</code></li>"
-            "<li>.env/Render env vars must be set for CLIENT_ID/SECRET/REDIRECT_URI</li>"
+            f"<li>Authorized redirect URI in Google Cloud must match exactly:<br>"
+            f"<code>{GOOGLE_REDIRECT_URI}</code></li>"
+            "<li>Render env vars set: GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / GOOGLE_REDIRECT_URI</li>"
             "<li>Scopes in /start and /callback must match</li>"
-            "</ul>",
-            status_code=500,
+            "</ul>"
         )
-# ---------------------------------------
-# Compatibility functions for gmail_api.py
-# ---------------------------------------
-from google.auth.transport.requests import Request
-from utils.db import get_token
+        return HTMLResponse(msg, status_code=500)
 
-def refresh_access_token(user_id: str = "default") -> str:
-    """
-    Refresh the Google access token using the saved refresh_token.
-    Returns a fresh access_token string.
-    """
-    tok = get_token(user_id, "google")
-    if not tok or not tok.get("token_json"):
-        raise RuntimeError("No token found for user or provider")
-
-    creds = Credentials.from_authorized_user_info(tok["token_json"])
-    if creds.expired and creds.refresh_token:
-        creds.refresh(Request())
-        # save updated tokens back
-        token_payload = {
-            "access_token": creds.token,
-            "refresh_token": creds.refresh_token,
-            "token_uri": creds.token_uri,
-            "client_id": creds.client_id,
-            "client_secret": creds.client_secret,
-            "scopes": creds.scopes,
-            "id_token": creds.id_token,
-        }
-        expiry_iso = creds.expiry.isoformat() if creds.expiry else None
-        scopes_str = " ".join(creds.scopes or [])
-        upsert_token(user_id, "google", token_payload, expiry_iso, scopes_str)
-    return creds.token
-
-def save_tokens(user_id: str, token_json: dict):
-    """
-    Simple pass-through used by older Gmail modules.
-    """
-    expiry_iso = token_json.get("expiry") or token_json.get("token_expiry")
-    scopes_str = " ".join(token_json.get("scopes", [])) if isinstance(token_json.get("scopes"), list) else token_json.get("scopes", "")
-    upsert_token(user_id, "google", token_json, expiry_iso, scopes_str)
 
 
