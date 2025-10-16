@@ -64,6 +64,11 @@ async def odoo_priority(payload: Dict[str, Any]):
     stages = payload.get("stages")
     owner_id = payload.get("owner_id")
     return search_priority_items(days_ahead, limit, stages, owner_id)
+    from odoo_api import search_priority_items, debug_check  # make sure debug_check is imported
+
+@app.get("/v1/odoo/debug")
+async def odoo_debug():
+    return debug_check()
 
 # ---------- Memory ----------
 @app.post("/v1/memory/write")
