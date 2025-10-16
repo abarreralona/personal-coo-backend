@@ -69,6 +69,12 @@ async def odoo_priority(payload: Dict[str, Any]):
 @app.get("/v1/odoo/debug")
 async def odoo_debug():
     return debug_check()
+    from odoo_api import search_priority_items, debug_check  # make sure this import is present
+
+@app.get("/v1/odoo/debug")
+async def odoo_debug():
+    return debug_check()
+
 
 # ---------- Memory ----------
 @app.post("/v1/memory/write")
