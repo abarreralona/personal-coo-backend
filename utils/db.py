@@ -95,3 +95,37 @@ def search_memory(user_id: str, query: str, kinds: Optional[List[str]]=None, top
     rows = [dict(r) for r in c.execute(base, params).fetchall()]
     conn.close()
     return rows
+
+def init_db():
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+
+    # where we store OAuth tokens (if you don’t have it already)
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS oauth_tokens (
+        provider TEXT PRIMARY KEY,
+        access_token TEXT,
+        refresh_token TEXT,
+        token_expiry TEXT,
+        scopes TEXT
+    )
+    """)
+
+    # memory table
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS memories (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT NOT NULL,           -- e.g. your Google email (owner of the agent)
+        agent_id TEXT NOT NULL,          -- e.g. 'personal-coo'
+        scope TEXT NOT NULL,             -- 'short' | 'long' | 'team'
+        content TEXT NOT NULL,
+        tags TEXT,                       -- comma-separated tags ("sales,weekly-plan")
+        source TEXT,                     -- 'manual' | 'gmail' | 'odoo' | 'chat'
+        score REAL DEFAULT 0,            -- optional ranking field
+        created_at TEXT NOT NULL,
+        expires_at TEXT                   -- null for long-term
+    )
+    """)
+
+    conn.commit()
+    conn.close()
