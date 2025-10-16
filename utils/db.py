@@ -129,3 +129,23 @@ def init_db():
 
     conn.commit()
     conn.close()
+
+def get_token(provider: str):
+    conn = sqlite3.connect(DB_PATH); c = conn.cursor()
+    row = c.execute("SELECT access_token, refresh_token, token_expiry, scopes FROM oauth_tokens WHERE provider=?", (provider,)).fetchone()
+    conn.close()
+    if not row: return None
+    return {"access_token": row[0], "refresh_token": row[1], "token_expiry": row[2], "scopes": row[3]}
+
+def upsert_token(provider: str, access_token: str, refresh_token: str, token_expiry: str, scopes: str):
+    conn = sqlite3.connect(DB_PATH); c = conn.cursor()
+    c.execute("""INSERT INTO oauth_tokens(provider, access_token, refresh_token, token_expiry, scopes)
+                 VALUES(?,?,?,?,?)
+                 ON CONFLICT(provider) DO UPDATE SET
+                    access_token=excluded.access_token,
+                    refresh_token=excluded.refresh_token,
+                    token_expiry=excluded.token_expiry,
+                    scopes=excluded.scopes""",
+              (provider, access_token, refresh_token, token_expiry, scopes))
+    conn.commit(); conn.close()
+
