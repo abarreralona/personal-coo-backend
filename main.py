@@ -1,63 +1,45 @@
-from fastapi import FastAPI, HTTPException
+# main.py
+from fastapi import FastAPI, HTTPException, Body
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import JSONResponse
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
+import sqlite3
+import os
 
-# NEW imports
-from utils.db import init_db
-from google_oauth import router as google_oauth_router
-app.include_router(google_oauth_router)
-from gmail_api import summarize_inbox, send_email
-from odoo_api import search_priority_items
-from memory_api import memory_write, memory_search
+# --- DB bootstrap ---
+from utils.db import init_db, DB_PATH
 
+# --- Create app first ---
+app = FastAPI(title="Personal COO Backend Gateway", version="1.4.0")
 init_db()
 
-app = FastAPI(title="Personal COO Backend Gateway", version="1.2.0")
-
+# --- CORS ---
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],    # tighten later if you want
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+# --- Include routers (Google OAuth) ---
+# Make sure google_oauth.py defines: `router = APIRouter()` with /v1/oauth/google/* routes
+from google_oauth import router as google_oauth_router
+app.include_router(google_oauth_router)
+
+# ----------------------------
+# Health
+# ----------------------------
 @app.get("/v1/health")
 async def health():
     return {"status": "ok", "time": datetime.utcnow().isoformat()}
 
-# ---------- Google OAuth ----------
-@app.get("/v1/oauth/google/start")
-async def google_oauth_start(user_id: str = "default"):
-    return RedirectResponse(oauth_start_url(user_id=user_id))
-
-@app.get("/v1/oauth/google/callback")
-async def google_oauth_callback(code: str, state: Optional[str] = None):
-    tokens = exchange_code_for_tokens(code)
-    save_tokens("default", tokens)
-    return HTMLResponse("<h2>Google connected ✅</h2><p>You can close this window.</p>")
-
-# ---------- Gmail (real) ----------
-@app.post("/v1/gmail/summarize-inbox")
-async def gmail_summarize(payload: Dict[str, Any]):
-    user_id = payload.get("user_id", "default")
-    query = payload.get("query", "in:inbox newer_than:7d -category:promotions")
-    max_threads = int(payload.get("max_threads", 10))
-    return {"threads": summarize_inbox(user_id, query, max_threads)}
-
-@app.post("/v1/gmail/compose-and-send")
-async def gmail_compose_send(payload: Dict[str, Any]):
-    user_id = payload.get("user_id", "default")
-    to = payload.get("to", [])
-    subject = payload.get("subject", "")
-    html_body = payload.get("html_body", "")
-    threadId = payload.get("threadId")
-    draftOnly = bool(payload.get("draftOnly", True))
-    return send_email(user_id, to, subject, html_body, threadId, draftOnly)
-
-from gmail_api import list_threads, get_thread, create_draft, send_message
+# ----------------------------
+# Gmail endpoints
+# ----------------------------
+# Ensure gmail_api.py defines: list_threads, create_draft, send_message
+from gmail_api import list_threads, create_draft, send_message
 
 @app.post("/v1/gmail/thread-list")
 async def gmail_thread_list(payload: Dict[str, Any]):
@@ -68,16 +50,55 @@ async def gmail_thread_list(payload: Dict[str, Any]):
 
 @app.post("/v1/gmail/draft")
 async def gmail_draft(payload: Dict[str, Any]):
-    draft = create_draft(payload["to"], payload["subject"], payload.get("body", ""), payload.get("threadId"))
+    to = payload["to"]
+    subject = payload.get("subject", "")
+    body = payload.get("body", "")
+    thread_id = payload.get("threadId")
+    draft = create_draft(to, subject, body, thread_id)
     return {"draft": draft}
 
 @app.post("/v1/gmail/send")
 async def gmail_send(payload: Dict[str, Any]):
-    sent = send_message(payload["to"], payload["subject"], payload.get("body", ""), payload.get("threadId"))
+    to = payload["to"]
+    subject = payload.get("subject", "")
+    body = payload.get("body", "")
+    thread_id = payload.get("threadId")
+    sent = send_message(to, subject, body, thread_id)
     return {"sent": sent}
 
+# Compatibility shims (optional): keep old names if your UI already calls them
+@app.post("/v1/gmail/summarize-inbox")
+async def gmail_summarize_inbox(payload: Dict[str, Any]):
+    q = payload.get("query", "in:inbox newer_than:7d -category:promotions")
+    limit = int(payload.get("max_threads", 10))
+    threads = list_threads(q, limit)
+    # Return as-is; summarization can be added later if needed
+    return {"threads": threads}
 
-# ---------- Odoo ----------
+@app.post("/v1/gmail/compose-and-send")
+async def gmail_compose_and_send(payload: Dict[str, Any]):
+    to = payload.get("to", [])
+    subject = payload.get("subject", "")
+    html_or_text = payload.get("html_body") or payload.get("body", "")
+    thread_id = payload.get("threadId")
+    draft_only = bool(payload.get("draftOnly", True))
+    if not to:
+        raise HTTPException(status_code=422, detail="'to' is required")
+    # support string or list
+    to_addr = to[0] if isinstance(to, list) else to
+    if draft_only:
+        draft = create_draft(to_addr, subject, html_or_text, thread_id)
+        return {"status": "draft_created", "draft": draft}
+    else:
+        sent = send_message(to_addr, subject, html_or_text, thread_id)
+        return {"status": "sent", "sent": sent}
+
+# ----------------------------
+# Odoo endpoints
+# ----------------------------
+# Ensure odoo_api.py defines: search_priority_items(days_ahead, limit, stages, owner_id) and debug_check()
+from odoo_api import search_priority_items, debug_check
+
 @app.post("/v1/odoo/priority-items/search")
 async def odoo_priority(payload: Dict[str, Any]):
     days_ahead = int(payload.get("days_ahead", 14))
@@ -85,32 +106,14 @@ async def odoo_priority(payload: Dict[str, Any]):
     stages = payload.get("stages")
     owner_id = payload.get("owner_id")
     return search_priority_items(days_ahead, limit, stages, owner_id)
-    from odoo_api import search_priority_items, debug_check  # make sure debug_check is imported
-
-@app.get("/v1/odoo/debug")
-async def odoo_debug():
-    return debug_check()
-    from odoo_api import search_priority_items, debug_check  # make sure this import is present
 
 @app.get("/v1/odoo/debug")
 async def odoo_debug():
     return debug_check()
 
-
-# ---------- Memory ----------
-@app.post("/v1/memory/write")
-async def memory_write_route(payload: Dict[str, Any]):
-    return memory_write(payload.get("user_id","default"),
-                        payload["kind"], payload["text"],
-                        payload.get("tags"), float(payload.get("strength", 0.7)))
-
-@app.post("/v1/memory/search")
-async def memory_search_route(payload: Dict[str, Any]):
-    return memory_search(payload.get("user_id","default"),
-                         payload.get("query",""),
-                         payload.get("kinds"), int(payload.get("top_k",5)))
-
-# ---------- Your existing planner ----------
+# ----------------------------
+# Planner (your existing mock)
+# ----------------------------
 @app.post("/v1/planner/week-plan")
 async def make_week_plan(payload: Dict[str, Any]):
     goals: List[str] = payload.get("goals", [])
@@ -148,18 +151,14 @@ async def make_week_plan(payload: Dict[str, Any]):
         })
     return {"tasks": tasks, "subtasks": subtasks, "schedule_suggestions": schedule}
 
-from fastapi import Body
-from utils.db import DB_PATH
-import sqlite3, os
-from datetime import datetime, timedelta
-
+# ----------------------------
+# Memory (simple)
+# ----------------------------
 def _db():
     return sqlite3.connect(DB_PATH)
 
 @app.post("/v1/memory/save")
-async def memory_save(
-    payload: Dict[str, Any] = Body(...)
-):
+async def memory_save(payload: Dict[str, Any] = Body(...)):
     """
     payload: { user_id, agent_id, scope, content, tags?, ttl_days?, source? }
     scope: 'short' | 'long' | 'team'
@@ -174,6 +173,11 @@ async def memory_save(
     source = payload.get("source", "manual")
 
     conn = _db(); c = conn.cursor()
+    c.execute("""CREATE TABLE IF NOT EXISTS memories(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT, agent_id TEXT, scope TEXT, content TEXT, tags TEXT,
+        source TEXT, score REAL DEFAULT 0, created_at TEXT, expires_at TEXT
+    )""")
     c.execute("""INSERT INTO memories(user_id,agent_id,scope,content,tags,source,created_at,expires_at)
                  VALUES(?,?,?,?,?,?,?,?)""",
               (user_id, agent_id, scope, content, tags, source, datetime.utcnow().isoformat(), expires))
@@ -183,15 +187,13 @@ async def memory_save(
     return {"id": rid, "status": "saved"}
 
 @app.post("/v1/memory/search")
-async def memory_search(
-    payload: Dict[str, Any] = Body(...)
-):
+async def memory_search(payload: Dict[str, Any] = Body(...)):
     """
     payload: { user_id, agent_id?, scope?, q?, limit? }
     """
     user_id = payload["user_id"]
     agent_id = payload.get("agent_id", "personal-coo")
-    scope = payload.get("scope")  # optional
+    scope = payload.get("scope")
     q = payload.get("q", "")
     limit = int(payload.get("limit", 20))
 
