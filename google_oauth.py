@@ -139,5 +139,36 @@ def google_oauth_callback(request: Request):
         )
         return HTMLResponse(msg, status_code=500)
 
+# --- Legacy compatibility for gmail_api.py -----------------------------------
+def save_tokens(_owner: str, token_payload: dict) -> None:
+    """
+    Back-compat helper expected by gmail_api.py.
+    Accepts a legacy dict and persists tokens to the oauth_tokens table.
+    """
+    # Handle both legacy and new field names
+    access = token_payload.get("access_token") or token_payload.get("token") or ""
+    refresh = token_payload.get("refresh_token") or ""
+    expiry = (
+        token_payload.get("token_expiry")
+        or token_payload.get("expiry")  # may be datetime/str
+        or ""
+    )
+    scopes = token_payload.get("scopes")
+
+    # scopes may come as list/space-separated/None
+    if isinstance(scopes, list):
+        scopes = " ".join(scopes)
+    elif not isinstance(scopes, str) or not scopes.strip():
+        scopes = " ".join(SCOPES)
+
+    # Persist using the canonical DB function
+    db_upsert_token(
+        provider="google",
+        access_token=access,
+        refresh_token=refresh,
+        token_expiry=str(expiry) if expiry else "",
+        scopes=scopes,
+    )
+# ----------------------------------------------------------------------------- 
 
 
