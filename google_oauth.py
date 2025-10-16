@@ -110,5 +110,45 @@ def google_oauth_callback(code: str, state: Optional[str] = None):
             "</ul>",
             status_code=500,
         )
+# ---------------------------------------
+# Compatibility functions for gmail_api.py
+# ---------------------------------------
+from google.auth.transport.requests import Request
+from utils.db import get_token
+
+def refresh_access_token(user_id: str = "default") -> str:
+    """
+    Refresh the Google access token using the saved refresh_token.
+    Returns a fresh access_token string.
+    """
+    tok = get_token(user_id, "google")
+    if not tok or not tok.get("token_json"):
+        raise RuntimeError("No token found for user or provider")
+
+    creds = Credentials.from_authorized_user_info(tok["token_json"])
+    if creds.expired and creds.refresh_token:
+        creds.refresh(Request())
+        # save updated tokens back
+        token_payload = {
+            "access_token": creds.token,
+            "refresh_token": creds.refresh_token,
+            "token_uri": creds.token_uri,
+            "client_id": creds.client_id,
+            "client_secret": creds.client_secret,
+            "scopes": creds.scopes,
+            "id_token": creds.id_token,
+        }
+        expiry_iso = creds.expiry.isoformat() if creds.expiry else None
+        scopes_str = " ".join(creds.scopes or [])
+        upsert_token(user_id, "google", token_payload, expiry_iso, scopes_str)
+    return creds.token
+
+def save_tokens(user_id: str, token_json: dict):
+    """
+    Simple pass-through used by older Gmail modules.
+    """
+    expiry_iso = token_json.get("expiry") or token_json.get("token_expiry")
+    scopes_str = " ".join(token_json.get("scopes", [])) if isinstance(token_json.get("scopes"), list) else token_json.get("scopes", "")
+    upsert_token(user_id, "google", token_json, expiry_iso, scopes_str)
 
 
