@@ -126,3 +126,89 @@ async def make_week_plan(payload: Dict[str, Any]):
             "timezone": "America/Mexico_City"
         })
     return {"tasks": tasks, "subtasks": subtasks, "schedule_suggestions": schedule}
+
+from fastapi import Body
+from utils.db import DB_PATH
+import sqlite3, os
+from datetime import datetime, timedelta
+
+def _db():
+    return sqlite3.connect(DB_PATH)
+
+@app.post("/v1/memory/save")
+async def memory_save(
+    payload: Dict[str, Any] = Body(...)
+):
+    """
+    payload: { user_id, agent_id, scope, content, tags?, ttl_days?, source? }
+    scope: 'short' | 'long' | 'team'
+    """
+    user_id = payload["user_id"]
+    agent_id = payload.get("agent_id", "personal-coo")
+    scope = payload.get("scope", "short")
+    content = payload["content"]
+    tags = ",".join(payload.get("tags", [])) if isinstance(payload.get("tags"), list) else payload.get("tags")
+    ttl = payload.get("ttl_days")
+    expires = (datetime.utcnow() + timedelta(days=int(ttl))).isoformat() if ttl else None
+    source = payload.get("source", "manual")
+
+    conn = _db(); c = conn.cursor()
+    c.execute("""INSERT INTO memories(user_id,agent_id,scope,content,tags,source,created_at,expires_at)
+                 VALUES(?,?,?,?,?,?,?,?)""",
+              (user_id, agent_id, scope, content, tags, source, datetime.utcnow().isoformat(), expires))
+    conn.commit()
+    rid = c.lastrowid
+    conn.close()
+    return {"id": rid, "status": "saved"}
+
+@app.post("/v1/memory/search")
+async def memory_search(
+    payload: Dict[str, Any] = Body(...)
+):
+    """
+    payload: { user_id, agent_id?, scope?, q?, limit? }
+    """
+    user_id = payload["user_id"]
+    agent_id = payload.get("agent_id", "personal-coo")
+    scope = payload.get("scope")  # optional
+    q = payload.get("q", "")
+    limit = int(payload.get("limit", 20))
+
+    conn = _db(); c = conn.cursor()
+    base = "SELECT id, scope, content, tags, source, created_at, expires_at FROM memories WHERE user_id=? AND agent_id=?"
+    args = [user_id, agent_id]
+    if scope:
+        base += " AND scope=?"; args.append(scope)
+    if q:
+        base += " AND content LIKE ?"; args.append(f"%{q}%")
+    base += " ORDER BY created_at DESC LIMIT ?"; args.append(limit)
+
+    rows = c.execute(base, args).fetchall()
+    conn.close()
+    return {"items": [
+        {"id": r[0], "scope": r[1], "content": r[2], "tags": r[3], "source": r[4], "created_at": r[5], "expires_at": r[6]}
+        for r in rows
+    ]}
+
+@app.get("/v1/memory/recent")
+async def memory_recent(user_id: str, scope: Optional[str] = None, limit: int = 10):
+    conn = _db(); c = conn.cursor()
+    sql = "SELECT id, scope, content, tags, source, created_at FROM memories WHERE user_id=?"
+    args = [user_id]
+    if scope:
+        sql += " AND scope=?"; args.append(scope)
+    sql += " ORDER BY created_at DESC LIMIT ?"; args.append(limit)
+    rows = c.execute(sql, args).fetchall()
+    conn.close()
+    return {"items": [
+        {"id": r[0], "scope": r[1], "content": r[2], "tags": r[3], "source": r[4], "created_at": r[5]}
+        for r in rows
+    ]}
+
+@app.delete("/v1/memory/{memory_id}")
+async def memory_delete(memory_id: int):
+    conn = _db(); c = conn.cursor()
+    c.execute("DELETE FROM memories WHERE id=?", (memory_id,))
+    conn.commit()
+    conn.close()
+    return {"deleted": memory_id}
