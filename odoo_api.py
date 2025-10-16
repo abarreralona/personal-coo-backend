@@ -65,3 +65,29 @@ def debug_check():
         "db": db,
         "user": user
     }
+
+# --- Debug helper (safe: does not expose secrets) ---
+def debug_check():
+    import os, xmlrpc.client
+    url = os.getenv("ODOO_URL")
+    db = os.getenv("ODOO_DB")
+    user = os.getenv("ODOO_USER")
+    try:
+        # 1) Check Odoo URL is reachable
+        common = xmlrpc.client.ServerProxy(f"{url}/xmlrpc/2/common")
+        ver = common.version()    # no auth needed
+    except Exception as e:
+        return {"ok": False, "phase": "version", "error": str(e), "url": url, "db": db, "user": user}
+
+    try:
+        # 2) Try to authenticate with DB + user + API key
+        uid = common.authenticate(db, user, os.getenv("ODOO_API_KEY"), {})
+        if not uid:
+            return {"ok": False, "phase": "authenticate", "error": "auth returned falsy uid",
+                    "url": url, "db": db, "user": user, "version": ver}
+    except Exception as e:
+        return {"ok": False, "phase": "authenticate", "error": str(e),
+                "url": url, "db": db, "user": user, "version": ver}
+
+    return {"ok": True, "phase": "done", "uid": uid, "version": ver, "url": url, "db": db, "user": user}
+
