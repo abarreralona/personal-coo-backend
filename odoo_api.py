@@ -37,3 +37,31 @@ def search_priority_items(days_ahead: int=14, limit: int=10, stages=None, owner_
             "owner_id": l["user_id"][0] if isinstance(l.get("user_id"), list) else None
         })
     return {"items": items}
+
+def debug_check():
+    import os, xmlrpc.client
+    url = os.getenv("ODOO_URL")
+    db = os.getenv("ODOO_DB")
+    user = os.getenv("ODOO_USER")
+    # don't return API key in the response!
+
+    try:
+        common = xmlrpc.client.ServerProxy(f"{url}/xmlrpc/2/common")
+        ver = common.version()            # no auth needed; checks URL reachability
+    except Exception as e:
+        return {"ok": False, "phase": "version", "error": str(e), "url": url, "db": db, "user": user}
+
+    try:
+        uid = common.authenticate(db, user, os.getenv("ODOO_API_KEY"), {})
+    except Exception as e:
+        return {"ok": False, "phase": "authenticate", "error": str(e), "url": url, "db": db, "user": user, "version": ver}
+
+    return {
+        "ok": bool(uid),
+        "phase": "done",
+        "uid": uid,
+        "version": ver,
+        "url": url,
+        "db": db,
+        "user": user
+    }
