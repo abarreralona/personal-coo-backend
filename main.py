@@ -56,6 +56,26 @@ async def gmail_compose_send(payload: Dict[str, Any]):
     draftOnly = bool(payload.get("draftOnly", True))
     return send_email(user_id, to, subject, html_body, threadId, draftOnly)
 
+from gmail_api import list_threads, get_thread, create_draft, send_message
+
+@app.post("/v1/gmail/thread-list")
+async def gmail_thread_list(payload: Dict[str, Any]):
+    q = payload.get("query", "in:inbox newer_than:7d -category:promotions")
+    limit = int(payload.get("limit", 20))
+    threads = list_threads(q, limit)
+    return {"threads": threads}
+
+@app.post("/v1/gmail/draft")
+async def gmail_draft(payload: Dict[str, Any]):
+    draft = create_draft(payload["to"], payload["subject"], payload.get("body", ""), payload.get("threadId"))
+    return {"draft": draft}
+
+@app.post("/v1/gmail/send")
+async def gmail_send(payload: Dict[str, Any]):
+    sent = send_message(payload["to"], payload["subject"], payload.get("body", ""), payload.get("threadId"))
+    return {"sent": sent}
+
+
 # ---------- Odoo ----------
 @app.post("/v1/odoo/priority-items/search")
 async def odoo_priority(payload: Dict[str, Any]):
