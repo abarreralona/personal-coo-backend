@@ -148,4 +148,25 @@ def send_message(to: str, subject: str, body: str, thread_id: Optional[str] = No
         message["threadId"] = thread_id
     sent = svc.users().messages().send(userId="me", body=message).execute()
     return sent
+# move heavy imports inside functions
+def _google_creds_from_store(user_id: str):
+    try:
+        from google.oauth2.credentials import Credentials
+    except Exception as e:
+        raise RuntimeError("Google libs missing. Did you add google-* packages to requirements.txt?") from e
+    # ...rest...
 
+def summarize_inbox(payload):
+    try:
+        from googleapiclient.discovery import build
+    except Exception as e:
+        raise RuntimeError("Google API client not installed.") from e
+    # ...rest...
+
+def send_email(payload):
+    try:
+        from googleapiclient.discovery import build
+        from googleapiclient.errors import HttpError
+    except Exception as e:
+        raise RuntimeError("Google API client not installed.") from e
+    # ...rest...
