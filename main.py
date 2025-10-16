@@ -6,7 +6,8 @@ from typing import List, Dict, Any, Optional
 
 # NEW imports
 from utils.db import init_db
-from google_oauth import oauth_start_url, exchange_code_for_tokens, save_tokens
+from google_oauth import router as google_oauth_router
+app.include_router(google_oauth_router)
 from gmail_api import summarize_inbox, send_email
 from odoo_api import search_priority_items
 from memory_api import memory_write, memory_search
