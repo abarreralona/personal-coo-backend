@@ -63,6 +63,12 @@ def _get_url() -> str:
 
 # ── Offline mode ─────────────────────────────────────────────────────────────
 
+# When provisioning a per-client schema, store alembic_version in that client's
+# own schema — each tenant tracks its own migration history independently.
+# For the platform schema, store alembic_version in the platform schema.
+_version_table_schema: str = _client_schema if _client_schema else "platform"
+
+
 def run_migrations_offline() -> None:
     """Generate SQL without a live DB connection."""
     context.configure(
@@ -71,7 +77,7 @@ def run_migrations_offline() -> None:
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
         version_table="alembic_version",
-        version_table_schema="platform",
+        version_table_schema=_version_table_schema,
         include_schemas=True,
     )
     with context.begin_transaction():
@@ -85,7 +91,7 @@ def _do_run_migrations(connection) -> None:
         connection=connection,
         target_metadata=target_metadata,
         version_table="alembic_version",
-        version_table_schema="platform",
+        version_table_schema=_version_table_schema,
         include_schemas=True,
     )
     with context.begin_transaction():
