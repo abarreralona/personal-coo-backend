@@ -16,5 +16,16 @@ Business Rule 4: On UNSUBSCRIBE/WRONG_EMAIL/NOT_INTERESTED/DNC:
   Celery revoke() all task IDs from sequence_schedule for this contact IMMEDIATELY.
 """
 
-# TODO: Step 16 — implement handle_email_reply Celery task
-raise NotImplementedError("workers/reply_handler.py: implemented in Step 16")
+from __future__ import annotations
+
+
+def handle_email_reply(reply_data: dict, client_id: str) -> dict:
+    """
+    Celery task: classify and route an inbound email reply.
+    Implements BR4 (task revocation), BR6 (deterministic-first), BR7 (LLM fallback).
+    Implemented in Step 16.
+
+    Returns {contact_id, reply_state, action_taken}
+    """
+    # TODO: Step 16 — implement handle_email_reply Celery task
+    raise NotImplementedError("workers/reply_handler.py: implemented in Step 16")

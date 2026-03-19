@@ -68,34 +68,37 @@ services:
     restart: unless-stopped
 
   # ── Celery Workers (one per pipeline stage) ────────────────────────────────
+  # Each worker reads CELERY_QUEUES_{STAGE_UPPER} from .env — a comma-separated
+  # list of per-client queues (e.g. "acme_discovery,beta_discovery").
+  # The provision_client.py script appends new client queues to these env vars.
   worker_discovery:
     <<: *celery-common
-    command: celery -A core.celery_app worker -Q discovery --loglevel=info --concurrency=2 --hostname=worker_discovery@%h
+    command: celery -A iolabs_sdr.core.celery_app worker -Q ${CELERY_QUEUES_DISCOVERY} --loglevel=info --concurrency=2 --hostname=worker_discovery@%h
 
   worker_classify:
     <<: *celery-common
-    command: celery -A core.celery_app worker -Q classify --loglevel=info --concurrency=4 --hostname=worker_classify@%h
+    command: celery -A iolabs_sdr.core.celery_app worker -Q ${CELERY_QUEUES_CLASSIFY} --loglevel=info --concurrency=4 --hostname=worker_classify@%h
 
   worker_enrich:
     <<: *celery-common
-    command: celery -A core.celery_app worker -Q enrich --loglevel=info --concurrency=4 --hostname=worker_enrich@%h
+    command: celery -A iolabs_sdr.core.celery_app worker -Q ${CELERY_QUEUES_ENRICH} --loglevel=info --concurrency=4 --hostname=worker_enrich@%h
 
   worker_email:
     <<: *celery-common
-    command: celery -A core.celery_app worker -Q email --loglevel=info --concurrency=2 --hostname=worker_email@%h
+    command: celery -A iolabs_sdr.core.celery_app worker -Q ${CELERY_QUEUES_EMAIL} --loglevel=info --concurrency=2 --hostname=worker_email@%h
 
   worker_reply:
     <<: *celery-common
-    command: celery -A core.celery_app worker -Q reply --loglevel=info --concurrency=4 --hostname=worker_reply@%h
+    command: celery -A iolabs_sdr.core.celery_app worker -Q ${CELERY_QUEUES_REPLY} --loglevel=info --concurrency=4 --hostname=worker_reply@%h
 
   worker_linkedin:
     <<: *celery-common
-    command: celery -A core.celery_app worker -Q linkedin --loglevel=info --concurrency=2 --hostname=worker_linkedin@%h
+    command: celery -A iolabs_sdr.core.celery_app worker -Q ${CELERY_QUEUES_LINKEDIN} --loglevel=info --concurrency=2 --hostname=worker_linkedin@%h
 
   # ── Celery Beat (scheduler for periodic tasks) ─────────────────────────────
   celery_beat:
     <<: *celery-common
-    command: celery -A core.celery_app beat --loglevel=info --scheduler celery.beat.PersistentScheduler
+    command: celery -A iolabs_sdr.core.celery_app beat --loglevel=info --scheduler celery.beat.PersistentScheduler
     volumes:
       - beat_data:/var/celery
 

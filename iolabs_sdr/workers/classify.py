@@ -10,14 +10,26 @@ Flow:
   3. Evaluate all signals via classifiers/signal_engine.py
   4. Score via classifiers/scorer.py → final_score + tier_label
   5. UPDATE lead: tier, classification_score, signals JSONB, status='classified'
-  6. If tier == 'Discard': status='disqualified', STOP
+  6. If tier == 'Discard': status='disqualified', STOP — do NOT enqueue Stage 3
   7. Else: enqueue discover_contacts → {client_id}_enrich
 
 Business Rules:
-  - Business Rule 8: screenshot failure → mark signal 'unresolvable', continue
+  - BR8: screenshot failure → mark signal 'unresolvable', continue (don't skip lead)
   - Scraper timeout: retry once after 60s (Section 11)
-  - Disqualifying signal fires → auto Discard regardless of score
+  - disqualifying signal → auto Discard regardless of total score
 """
 
-# TODO: Step 10 — implement classify_lead Celery task
-raise NotImplementedError("workers/classify.py: implemented in Step 10")
+from __future__ import annotations
+
+
+def classify_lead(lead_id: int, client_id: str) -> dict:
+    """
+    Celery task: classify a lead using screenshots + signal matrix.
+    Implemented in Step 10.
+
+    Returns {lead_id, tier, score, signals_evaluated, status}
+    """
+    # TODO: Step 10 — implement full classification pipeline
+    raise NotImplementedError(
+        "workers/classify.py: classify_lead() implemented in Step 10"
+    )

@@ -18,5 +18,32 @@ WF7 — Inbox Monitor:
 TODO: OPEN ITEM 4 — LinkedIn persona reply prompts not yet provided
 """
 
-# TODO: Step 17 — implement send_linkedin_invites + poll_linkedin_inbox tasks
-raise NotImplementedError("workers/linkedin.py: implemented in Step 17")
+from __future__ import annotations
+
+
+def send_linkedin_invites(client_id: str) -> dict:
+    """
+    Celery task: send daily LinkedIn connection requests for a client.
+    Respects config.linkedin_config.daily_invite_limit.
+    Does NOT re-invite already-connected or pending contacts.
+    Implemented in Step 17.
+
+    Returns {invites_sent: int, skipped: int, errors: int}
+    """
+    # TODO: Step 17 — implement send_linkedin_invites task
+    raise NotImplementedError("workers/linkedin.py: send_linkedin_invites() implemented in Step 17")
+
+
+def poll_linkedin_inbox(client_id: str) -> dict:
+    """
+    Celery task: poll LinkedIn inbox and classify new messages.
+    Runs every 30 minutes via Celery Beat.
+    Reuses reply/detector.py (same 7-state classifier).
+    Implemented in Step 17.
+
+    TODO: OPEN ITEM 4 — LinkedIn persona reply prompts not yet provided
+
+    Returns {messages_processed: int, replies_classified: int}
+    """
+    # TODO: Step 17 + OPEN ITEM 4 — implement poll_linkedin_inbox task
+    raise NotImplementedError("workers/linkedin.py: poll_linkedin_inbox() implemented in Step 17 (pending OPEN ITEM 4)")
