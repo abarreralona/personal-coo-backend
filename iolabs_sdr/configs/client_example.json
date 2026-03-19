@@ -1,0 +1,218 @@
+{
+  "_comment": "IOlabs AI SDR Platform — Reference Client Configuration v2.0",
+  "_open_items": {
+    "rule_6": "TODO: OPEN ITEM 1 — IOlabs to provide email methodology Rule 6",
+    "rule_7": "TODO: OPEN ITEM 1 — IOlabs to provide email methodology Rule 7",
+    "rule_8": "TODO: OPEN ITEM 1 — IOlabs to provide Rule 8: words/phrases that are never used",
+    "rule_9": "TODO: OPEN ITEM 1 — IOlabs to provide Rule 9: CTA rules for Email 2 and Email 3",
+    "rule_10": "TODO: OPEN ITEM 1 — IOlabs to provide Rule 10: formatting rules",
+    "seed_file": "TODO: OPEN ITEM 2 — IOlabs to write first Mirror Fish seed file for packaging_distribution_midmarket",
+    "email_2_3_templates": "TODO: OPEN ITEM 3 — Persona-specific HTML templates for Email 2 and Email 3",
+    "linkedin_persona_prompts": "TODO: OPEN ITEM 4 — LinkedIn reply generation system prompts",
+    "anomaly_thresholds": "TODO: OPEN ITEM 5 — Confirm open_rate < 15% warning, bounce_rate > 5% auto-pause",
+    "handoff_format": "TODO: OPEN ITEM 6 — Define exact SDR handoff notification fields"
+  },
+
+  "client_id": "client_example",
+  "sender_name": "Jordan Rivera",
+  "sender_email": "jordan@example-client.com",
+  "sender_smtp": {
+    "host": "smtp.example-client.com",
+    "port": 587,
+    "username": "jordan@example-client.com",
+    "password": "${SMTP_PASSWORD_CLIENT_EXAMPLE}"
+  },
+  "emails_per_day": 20,
+  "target_timezone": "America/Chicago",
+  "blog_url": "https://blog.example-client.com/manufacturing-insights",
+  "webhook_base_url": "https://sdr.iolabs.com",
+
+  "discovery": {
+    "google_categories": [
+      "packaging company",
+      "packaging distributor",
+      "industrial packaging supplier",
+      "corrugated box manufacturer"
+    ],
+    "target_geo": "Texas, USA"
+  },
+
+  "classification_rules": [
+    {
+      "name": "enterprise_logos_visible",
+      "type": "visual_ai",
+      "source": "logos_section_screenshot",
+      "prompt": "Does this image show a section of client logos, partner logos, or 'trusted by' brands from recognizable enterprise or mid-market companies? Look for a grid or row of company logos. Answer with JSON: {detected: bool, confidence: float 0.0-1.0, reasoning: string}",
+      "keywords": [],
+      "weight": 25,
+      "disqualifying": false
+    },
+    {
+      "name": "pharmaceutical_packaging_focus",
+      "type": "keyword",
+      "source": "page_text",
+      "prompt": "",
+      "keywords": [
+        "pharmaceutical packaging",
+        "pharma",
+        "blister pack",
+        "medical device packaging",
+        "FDA compliant",
+        "GMP",
+        "cleanroom"
+      ],
+      "weight": 30,
+      "disqualifying": false
+    },
+    {
+      "name": "custom_packaging_solutions",
+      "type": "visual_ai",
+      "source": "products_screenshot",
+      "prompt": "Does this image show custom-designed packaging products such as custom boxes, branded packaging, or specialty containers — NOT generic brown corrugated boxes? Answer with JSON: {detected: bool, confidence: float 0.0-1.0, reasoning: string}",
+      "keywords": [],
+      "weight": 20,
+      "disqualifying": false
+    },
+    {
+      "name": "ecommerce_only_disqualifier",
+      "type": "keyword",
+      "source": "page_text",
+      "prompt": "",
+      "keywords": [
+        "amazon seller",
+        "dropshipping",
+        "shopify store",
+        "online store only",
+        "no minimum order",
+        "retail packaging only"
+      ],
+      "weight": 0,
+      "disqualifying": true
+    },
+    {
+      "name": "b2b_manufacturing_signals",
+      "type": "llm_pickup",
+      "source": "page_text",
+      "prompt": "Based on this company's website text, does this appear to be a B2B company selling packaging solutions directly to manufacturers or distributors (not to consumers)? Look for: custom quotes, bulk orders, account managers, lead times, minimum order quantities. Return JSON: {result: bool, reasoning: string}",
+      "keywords": [],
+      "weight": 25,
+      "disqualifying": false
+    }
+  ],
+
+  "classification_tiers": {
+    "A": { "min_score": 70, "label": "Hot" },
+    "B": { "min_score": 40, "label": "Warm" },
+    "C": { "min_score": 0, "label": "Discard" }
+  },
+
+  "personas": {
+    "executive": {
+      "system_prompt": "You are writing the opening paragraph of a cold email on behalf of Jordan Rivera to a C-level executive (CEO/President/Owner) at a mid-market packaging or distribution company. The company name is {company_name}. Write 1 paragraph, 40-60 words, no questions, no greeting line. Start directly with your observation. Use peer-level language — you are a peer, not a vendor. Mention {company_name} in sentence 2 or 3, never sentence 1. The observation must relate to a theme common among packaging company executives: operational efficiency, supply chain pressure, or growth through automation. Do not invent specific facts about the company.",
+      "fallback_opening": "When speaking with executives at packaging and distribution companies, a recurring theme is the pressure to modernize operations without disrupting existing workflows. Companies at {company_name}'s scale often find the biggest leverage comes from identifying where manual processes are quietly eroding margin.",
+      "email_subject": "quick thought on {company_name}",
+      "email_body_html": "<p>{opening_paragraph}</p><p>I put together a short piece on how similar companies are approaching this — thought it might be worth 3 minutes of your time: <a href=\"{tracked_blog_url}\">read it here</a>.</p><p>Worth a conversation?</p><p>—{sender_name}</p><img src=\"{pixel_url}\" width=\"1\" height=\"1\" style=\"display:none\" />",
+      "sequence_timing": {
+        "email_1_to_2": 3,
+        "email_2_to_3": 4,
+        "email_3_to_final": 7
+      }
+    },
+    "ops": {
+      "system_prompt": "TODO: OPEN ITEM 3 — Ops persona system prompt pending email template delivery",
+      "fallback_opening": "TODO: OPEN ITEM 3 — Ops fallback opening pending",
+      "email_subject": "TODO: OPEN ITEM 3",
+      "email_body_html": "TODO: OPEN ITEM 3 — Email body HTML template for ops persona",
+      "sequence_timing": {
+        "email_1_to_2": 3,
+        "email_2_to_3": 4,
+        "email_3_to_final": 7
+      }
+    },
+    "finance": {
+      "system_prompt": "TODO: OPEN ITEM 3 — Finance persona system prompt pending",
+      "fallback_opening": "TODO: OPEN ITEM 3 — Finance fallback opening pending",
+      "email_subject": "TODO: OPEN ITEM 3",
+      "email_body_html": "TODO: OPEN ITEM 3 — Email body HTML template for finance persona",
+      "sequence_timing": {
+        "email_1_to_2": 3,
+        "email_2_to_3": 4,
+        "email_3_to_final": 7
+      }
+    },
+    "purchase": {
+      "system_prompt": "TODO: OPEN ITEM 3 — Purchase persona system prompt pending",
+      "fallback_opening": "TODO: OPEN ITEM 3 — Purchase fallback opening pending",
+      "email_subject": "TODO: OPEN ITEM 3",
+      "email_body_html": "TODO: OPEN ITEM 3 — Email body HTML template for purchase persona",
+      "sequence_timing": {
+        "email_1_to_2": 3,
+        "email_2_to_3": 4,
+        "email_3_to_final": 7
+      }
+    },
+    "owner": {
+      "system_prompt": "TODO: OPEN ITEM 3 — Owner persona system prompt pending",
+      "fallback_opening": "TODO: OPEN ITEM 3 — Owner fallback opening pending",
+      "email_subject": "TODO: OPEN ITEM 3",
+      "email_body_html": "TODO: OPEN ITEM 3 — Email body HTML template for owner persona",
+      "sequence_timing": {
+        "email_1_to_2": 3,
+        "email_2_to_3": 4,
+        "email_3_to_final": 7
+      }
+    },
+    "development": {
+      "system_prompt": "TODO: OPEN ITEM 3 — Development persona system prompt pending",
+      "fallback_opening": "TODO: OPEN ITEM 3 — Development fallback opening pending",
+      "email_subject": "TODO: OPEN ITEM 3",
+      "email_body_html": "TODO: OPEN ITEM 3 — Email body HTML template for development persona",
+      "sequence_timing": {
+        "email_1_to_2": 3,
+        "email_2_to_3": 4,
+        "email_3_to_final": 7
+      }
+    }
+  },
+
+  "reply_handlers": {
+    "ooo": { "action": "reschedule" },
+    "not_interested": { "action": "flag_pause" },
+    "unsubscribe": { "action": "dnc" },
+    "wrong_email": { "action": "flag_invalid" },
+    "interested": {
+      "enabled": true,
+      "llm_prompt": "You are Jordan Rivera responding to a prospect who expressed interest in connecting. Write a warm, concise reply (2-3 sentences) that confirms you received their message and proposes a brief 15-minute call. Do not use a subject line. Do not use a greeting. Be human, peer-level, not salesy."
+    },
+    "asking_for_info": {
+      "enabled": true,
+      "reply_template_html": "<p>Happy to share more context.</p><p>{info_response}</p><p>Does a quick call make sense to walk through the specifics?</p><p>—{sender_name}</p>"
+    },
+    "complex_question": {
+      "enabled": true,
+      "handoff_channel": "slack"
+    }
+  },
+
+  "notification_channels": {
+    "slack_webhook_url": "${SLACK_WEBHOOK_CLIENT_EXAMPLE}",
+    "alert_email": "sdr@example-client.com",
+    "custom_webhook_url": null
+  },
+
+  "handoff_trigger": ["interested", "complex_question"],
+
+  "linkedin_config": {
+    "daily_invite_limit": 15,
+    "connection_message_template": "Hi {first_name}, came across {company_name} while researching packaging companies in {region}. Would love to connect — always good to have conversations with people in the space.",
+    "reply_prompt": "TODO: OPEN ITEM 4 — LinkedIn reply generation system prompt pending"
+  },
+
+  "features": {
+    "interested_reply_enabled": true,
+    "complex_handoff_enabled": true,
+    "linkedin_enabled": true,
+    "open_claw_enabled": true,
+    "mirror_fish_industry": "packaging_distribution_midmarket"
+  }
+}
