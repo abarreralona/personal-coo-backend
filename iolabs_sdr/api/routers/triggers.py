@@ -7,7 +7,7 @@ Endpoints:
 """
 
 from fastapi import APIRouter, Depends
-from api.dependencies import verify_api_key
+from iolabs_sdr.api.dependencies import verify_api_key
 
 router = APIRouter(prefix="/api", tags=["triggers"])
 

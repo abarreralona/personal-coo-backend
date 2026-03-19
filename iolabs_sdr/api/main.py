@@ -6,7 +6,7 @@ Stage 14 fully implemented. Routers registered here.
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.routers import webhooks, triggers, admin
+from iolabs_sdr.api.routers import webhooks, triggers, admin
 
 app = FastAPI(
     title="IOlabs AI SDR Platform",

@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from core.config_loader import (
+from iolabs_sdr.core.config_loader import (
     REQUIRED_PERSONAS,
     ClientConfig,
     ClassificationTiers,
@@ -23,7 +23,7 @@ from core.config_loader import (
     SMTPConfig,
     load_client_config,
 )
-from core.exceptions import ConfigNotFoundError, ConfigValidationError
+from iolabs_sdr.core.exceptions import ConfigNotFoundError, ConfigValidationError
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 
